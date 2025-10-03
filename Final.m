@@ -2,10 +2,11 @@ clc;
 clear;
 close all;
 
-%% 定义变量
+%% Parameters
 
 L=1;
 W=1;
+%bubble distribution
 Initial_x=[0.25,0.75,0.25,0.75];
 Initial_y=[0.25,0.25,0.75,0.75];
 r=[0.1,0.1,0.1,0.1];
@@ -25,23 +26,21 @@ V=zeros(M+1,N+1,T);
 
 X=linspace(0,L,N);
 Y=linspace(0,W,M);
-%% 写一个更新phi的函数
+
+%% level set update function
 function phi_modified=updatephi(phi,h)
 M=size(phi,1);
 N=size(phi,2);
 phinew=phi;
 epsilon=1e-6;
 maxstep=1;
-%伪时间步
+%pseudo time step
 dtau=0.001;
 S=@(x) x./sqrt(x.^2+epsilon);
 for t=1:maxstep 
     phiold=phinew;  
     for j=1:M
         for i=1:N
-              
-            %先计算phi的梯度
-            %x方向差分
 
             if(i==1)
                 phix=(phiold(j,i+1)-phiold(j,N))/h/2;
@@ -50,7 +49,7 @@ for t=1:maxstep
             else
                 phix=(phiold(j,i+1)-phiold(j,i-1))/h/2;
             end
-            %y方向差分
+
             if(j==1)
                 phiy=(phiold(j+1,i)-phiold(M,i))/h/2;
             elseif(j==M)
@@ -58,7 +57,7 @@ for t=1:maxstep
             else
                 phiy=(phiold(j+1,i)-phiold(j-1,i))/h/2;
             end
-            %计算phi梯度的绝对值
+
             norm=abs(sqrt(phix^2+phiy^2));
             phinew(j,i)=phiold(j,i)+dtau*S(norm)*(1-norm);
         end
@@ -67,24 +66,7 @@ end
 phi_modified=phinew;
 end
 
-%% 写一个验证归一化体积守恒的函数
-function rate=conservation(F)
-M=size(F,1);
-N=size(F,2);
-T=size(F,3);
-V0=0;
-V1=0;
-for j=1:M
-    for i=1:N
-        V0=V0+(1-F(j,i,1));
-        V1=V1+(1-F(j,i,T));
-    end
-end
-rate=(V1-V0)/V0;
-
-end
-
-%% 写一个对F truncation的函数
+%% F truncation function,avoid VOF greater than 1, or less than 0
 function F_tr=truncation(F,tol)
 if(F>1-tol)
     F_tr=1;
@@ -96,67 +78,7 @@ else
 end
 end
 
-%% 定义一个直线绘制函数
-function plotline(a,b,c,xmin,xmax,ymin,ymax)
-%定义数组存储
-xy=zeros(2,4);
-
-%左边界
-y_lf=(-a*xmin-c)/b;
-if((y_lf>=ymin)&&(y_lf<ymax))
-    xy(1,1)=xmin;
-    xy(2,1)=y_lf;
-end
-
-%下边界
-x_down=(-b*ymin-c)/a;
-if((x_down>xmin)&&(x_down<=xmax))
-    xy(1,2)=x_down;
-    xy(2,2)=ymin;
-end
-
-%右边界
-y_right=(-a*xmax-c)/b;
-if((y_right>ymin)&&(y_right<=ymax))
-    xy(1,3)=xmax;
-    xy(2,3)=y_right;
-end
-
-%上边界
-x_up=(-b*ymax-c)/a;
-if((x_up>=xmin)&&(x_up<xmax))
-    xy(1,4)=x_up;
-    xy(2,4)=ymax;
-end
-
-flag=0;
-for j=1:4
-
-    if(flag==2)
-        break;
-    end
-
-    if((xy(1,j)~=0)&&(flag==0))
-        x_start=xy(1,j);
-        y_start=xy(2,j);
-        flag=flag+1;
-        continue;
-    end
-
-    if((xy(1,j)~=0)&&(flag==1))
-        x_end=xy(1,j);
-        y_end=xy(2,j);
-        flag=flag+1;
-    end
-
-end
-
-if(flag==2)
-plot([x_start,x_end],[y_start,y_end],'r');
-end
-
-end
-%% 写一个找拟合平面的函数
+%% use the E_min method in Sussman paper to find fitting plane
 function [a,b,c]=Emin(phi,j,i,H,h)
         [M,N]=size(phi);
         A=zeros(3,3);
@@ -169,8 +91,6 @@ function [a,b,c]=Emin(phi,j,i,H,h)
                for q=-1:1
            pp=p;
            qq=q;
-
-           %防越界的周期条件
 
            if((j+p)>M)
                pp=1-M;
@@ -219,7 +139,6 @@ function [a,b,c]=Emin(phi,j,i,H,h)
                    for q=-1:1
                        pp=p;
                        qq=q;
-                       %防越界的周期条件
                        if((j+p)>M)
                            pp=1-M;
                        elseif((j+p)<1)
@@ -231,8 +150,6 @@ function [a,b,c]=Emin(phi,j,i,H,h)
                        elseif((i+q)<1)
                            qq=N-1;
                        end
-           
-
 
                        if(m==1)
                            
@@ -319,8 +236,6 @@ function [a,b,c]=Emin(phi,j,i,H,h)
                A(m,col)=term;
                
            end
-
-           
         end
 
         solution=A\P;
@@ -334,7 +249,7 @@ function [a,b,c]=Emin(phi,j,i,H,h)
         
 
 end
-%% 写一个用F求c的函数
+%% use f get c,based on geometry method (Zaleski's paper)
 function c_solution=backward(F,j,i,a_solution,b_solution,c,h)              
                 
                 m1=min(abs(a_solution),abs(b_solution));
@@ -355,9 +270,8 @@ function c_solution=backward(F,j,i,a_solution,b_solution,c,h)
                 c_solution=sign(c)*abs(alpha*h-h/2)*(m1+m2);
 end
 
-%% 写一个resolution可调的积分函数
+%% resolution changeable integration function to advect VOF
 
-%积分边界填相对中心的平移值
 function Area=Integration(a,b,c,xmin,xmax,ymin,ymax)
 if xmax < xmin, t = xmin; xmin = xmax; xmax = t; end
 if ymax < ymin, t = ymin; ymin = ymax; ymax = t; end
@@ -379,14 +293,14 @@ Area=count*dx*dy;
 
 end
 
-%% 定义界面平滑函数
+%% function definition
 epsilon=sqrt(2)*h;
 
 dirac = @(d) ((d >= -epsilon) & (d <= epsilon)) .* (0.5/epsilon) .* (1 + cos(pi*d/epsilon));
 
-%% 写一个返回上下，或右左通量的函数
+%% flux calculation function 
 function [F_phalf,F_mhalf]=Flux(F,phi,U,j,i,h,tol,dirac,N,dt)
-%判断U*F+项
+
 if(U(j,i+1)>=0)
     if(F(j,i)>tol && F(j,i)<1-tol)
         [a_solution,b_solution,c]=Emin(phi,j,i,dirac,h);
@@ -422,7 +336,6 @@ else
     end
 end
 
-%判断U*F-项
 if(U(j,i)<=0)
     if(F(j,i)>tol && F(j,i)<1-tol)
         [a_solution,b_solution,c]=Emin(phi,j,i,dirac,h);
@@ -460,10 +373,10 @@ else
 end
 end
 
-%% 初始化
+%% Initialization
 
 position=zeros(M,N);
-%初始化phi
+%Initialize phi based on periodic boundary condition
 
 for j=1:M
     for i=1:N
@@ -497,10 +410,7 @@ for j=1:M
     end
 end
 
-
-
-
-%初始化F
+%Initialize F
 for j=1:M
     for i=1:N
         x=i*h-h/2;
@@ -511,7 +421,6 @@ for j=1:M
         elseif(phi(j,i,1)<=(-h/sqrt(2)))
             F(j,i,1)=0;
         else
-            %进一步切分
             resM=200;
             resN=200;
             count=0;
@@ -526,8 +435,6 @@ for j=1:M
                     end
                 end
             end
-
-
             F(j,i,1)=(count/(resM*resN));
 
         end
@@ -536,7 +443,7 @@ end
 
 
 
-%速度场定义
+%velocity field
 for n=1:T
 for j=1:(M+1)
         for i=1:(N+1)
@@ -553,18 +460,17 @@ end
 end
 
 
-%% 可视化
+%% visulization
 figure
 
-
-%% 主循环
+%% main loop
 
 for n=1:(T-1)
-    %通过phi计算phi_star
+    %phi get phi_star
     phi_star=zeros(M,N);
     for j=1:M
         for i=1:N
-            %判断U*phi+项
+           
             if(U(j,i+1,n)<=0)
 
                 if(i==(N-1))
@@ -587,7 +493,7 @@ for n=1:(T-1)
 
             end
 
-            %判断U*phi-项
+
             if(U(j,i,n)<=0)
                 if(i==N)
                     phi_mhalf=phi(j,i,n)-h/2*(1+U(j,i,n)*dt/h)*(phi(j,1,n)-phi(j,i-1,n))/h/2;
@@ -617,7 +523,7 @@ for n=1:(T-1)
     end
 
 
-    %计算Fstar
+    %solve Fstar
     
     F_star=zeros(M,N);
     for j=1:M
@@ -636,7 +542,7 @@ for n=1:(T-1)
     %phi_n+1
     for j=1:M
         for i=1:N
-            %判断V*phi+项
+
             if(V(j+1,i,n)<=0)
                 if(j==(M-1))
                     phistar_phalf=phi_star(j+1,i)-h/2*(1+V(j+1,i,n)*dt/h)*(phi_star(1,i)-phi_star(j,i))/h/2;
@@ -656,8 +562,7 @@ for n=1:(T-1)
                     phistar_phalf=phi_star(j,i)+h/2*(1-V(j+1,i,n)*dt/h)*(phi_star(j+1,i)-phi_star(j-1,i))/h/2;
                 end
             end
-
-            %判断V*phi-项
+            
             if(V(j,i,n)<=0)
 
                 if(j==M)
@@ -689,7 +594,7 @@ for n=1:(T-1)
     end
 
 
-    %计算F_n+1
+    %solve F_n+1
     for j=1:M
         for i=1:N
             [Fstar_phalf,Fstar_mhalf]=Flux(F_star',phi_star',V(:,:,n)',i,j,h,tol,dirac,M,dt);
@@ -702,7 +607,7 @@ for n=1:(T-1)
     end
 
    
-    %用F反向修正phi
+    %F modify phi inversly
 
     for j=1:M
         for i=1:N
@@ -715,7 +620,7 @@ for n=1:(T-1)
     end
 
 
-    %phi的梯度修正,每隔几个循环修正一次
+    %phi gradient modification
     
     phi(:,:,n+1)=updatephi(phi(:,:,n+1),h);
 
@@ -734,3 +639,4 @@ end
 
 matrixF=F(:,:,31);
 matrixphi=phi(:,:,31);
+

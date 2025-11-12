@@ -1,4 +1,4 @@
-%% NS solver
+%% NS 方程
 function [unew,vnew,p]=NS(u,v,h,ghostnum,phi,dt,rhol,rhog,mul,mug,sigma)
 [Ny,Nx]=size(phi);
 N=Nx-2*ghostnum;
@@ -10,16 +10,15 @@ endx=N+ghostnum;
 upwindorder=2;
 
 g=9.8;
-%function definition
+%定义函数
 epsilon=sqrt(2)*h;
 dirac = @(x) ((x >= -epsilon) & (x <= epsilon)) .* (0.5./epsilon) .* (1 + cos(pi.*x./epsilon));
 H = @(x) (x < -epsilon).*0 + ((x >= -epsilon) & (x <= epsilon)).*0.5.*(1 + x./epsilon + sin(pi.*x./epsilon)./pi) + (x > epsilon).*1;
 rho=@(x) rhol.*H(x)+rhog.*(1-H(x));
 mu=@(x) mul.*H(x)+mug.*(1-H(x));
 
-%% Step1 get ustar
-
-% advection term in x direction
+%% Step1,得到ustar
+% 先计算对流项
 phihalfx=zeros(Ny+1,Nx+1);
 
 for j=start:endy+1
@@ -57,11 +56,12 @@ for j=start:endy+1
         else
             adux(j,i)=u(j,i)*(-3*u(j,i)+4*u(j,i+1)-u(j,i+2))/(2*h);
         end
-
-        if(v(j,i)>0)
-            aduy(j,i)=v(j,i)*(3*u(j,i)-4*u(j-1,i)+u(j-2,i))/(2*h);
+        
+        v_at_u_node = 0.25 * (v(j,i-1) + v(j,i) + v(j+1,i-1) + v(j+1,i));
+        if(v_at_u_node>0)
+            aduy(j,i)=v_at_u_node*(3*u(j,i)-4*u(j-1,i)+u(j-2,i))/(2*h);
         else
-            aduy(j,i)=v(j,i)*(-3*u(j,i)+4*u(j+1,i)-u(j+2,i))/(2*h);
+            aduy(j,i)=v_at_u_node*(-3*u(j,i)+4*u(j+1,i)-u(j+2,i))/(2*h);
         end
     end
 end
@@ -69,7 +69,7 @@ end
 
 adu=adux+aduy;
 
-%diffusion term in x direction
+%接着计算扩散项
 diffux=zeros(Ny+1,Nx+1);
 diffuy=zeros(Ny+1,Nx+1);
 diffvx=zeros(Ny+1,Nx+1);
@@ -79,6 +79,7 @@ diffv=zeros(Ny+1,Nx+1);
 
 for j=start:endy+1
     for i=start:endx+1
+        %中心差分乘upwind
 
         if(u(j,i)>0)
             diffux(j,i)=(u(j,i)-u(j,i-1))/h;
@@ -102,18 +103,26 @@ for j=start:endy+1
     for i=start:endx+1
 
         diff1=mu(phihalfx(j,i))*((u(j+1,i)-2*u(j,i)+u(j-1,i))/h^2+(u(j,i+1)-2*u(j,i)+u(j,i-1))/h^2);
-
         diff2x=((mu(phi(j,i))-mu(phi(j,i-1)))/h)*2*diffux(j,i);
+
+
+        %v定义的位置不同，故需要modify后使用
+        dmu_dy_N = (mu(phi(j+1,i)) + mu(phi(j+1,i-1))) * 0.5;
+        dmu_dy_S = (mu(phi(j-1,i)) + mu(phi(j-1,i-1))) * 0.5;
+        dmu_dy = (dmu_dy_N - dmu_dy_S) / (2*h);
 
         diffvx_mod=(diffvx(j,i)+diffvx(j,i+1)+diffvx(j+1,i)+diffvx(j+1,i+1))/4;
 
-        diff2y=((mu(phi(j,i))-mu(phi(j-1,i)))/h)*(diffuy(j,i)+diffvx_mod);
+        diff2y=dmu_dy*(diffuy(j,i)+diffvx_mod);
 
         diffu(j,i)=(diff1+diff2x+diff2y)/(rho(phihalfx(j,i)));
     end
 end
 
-%surface tension term
+
+
+
+%surface tension 项
 nux=zeros(Ny+1,Nx+1);
 nvy=zeros(Ny+1,Nx+1);
 curu=zeros(Ny+1,Nx+1);
@@ -124,7 +133,7 @@ cur=zeros(Ny+1,Nx+1);
 surfu=zeros(Ny+1,Nx+1);
 surfv=zeros(Ny+1,Nx+1);
 
-%normal vector
+%求法向量矩阵
 for j=start-1:endy+2
     for i=start-1:endx+2
 
@@ -137,7 +146,7 @@ for j=start-1:endy+2
     end
 end
 
-%curvature
+%求曲率矩阵
 for j=start:endy+1
     for i=start:endx+1
         gradnx=(nx(j,i+1)-nx(j,i-1))/h/2;
@@ -155,7 +164,7 @@ for j=start:endy+1
     end
 end
 
-%solve surface tension
+%求张力项
 for j=start:endy+1
     for i=start:endx+1
         %surfu(j,i)=sigma*curu(j,i)*nux(j,i)*dirac(phihalfx(j,i))/(rho(phihalfx(j,i)));
@@ -167,10 +176,10 @@ end
 
 
 
-%solve ustar
+%求解ustar,并修正边界条件
 ustar=u+(-adu+diffu-surfu)*dt;
 
-%set boundary condition(non-slip)
+
 for j=1:Ny+1
     for i=1:ghostnum
         ustar(j,i)=-ustar(j,2*ghostnum+2-i);
@@ -198,9 +207,9 @@ end
 ustar(:,ghostnum+1)=zeros(size(ustar(:,ghostnum+1)));
 ustar(:,endx+1)=zeros(size(ustar(:,endx+1)));
 
-%% Step2 get vstar
+%% Step2得到vstar
 
-% advection term in y direction
+% 先计算对流项
 phihalfy=zeros(Ny+1,Nx+1);
 
 for j=start:endy+1
@@ -228,16 +237,18 @@ for j=start:endy+1
         end
     end
 end
+end
 
 if (upwindorder==2)
 for j=start:endy+1
     for i=start:endx+1
-        if(u(j,i)>0)
-            advx(j,i)=u(j,i)*(3*v(j,i)-4*v(j,i-1)+v(j,i-2))/(2*h);
+        u_at_v_node = 0.25 * (u(j-1,i) + u(j-1,i+1) + u(j,i) + u(j,i+1));
+        if(u_at_v_node>0)
+            advx(j,i)=u_at_v_node*(3*v(j,i)-4*v(j,i-1)+v(j,i-2))/(2*h);
         else
-            advx(j,i)=u(j,i)*(-3*v(j,i)+4*v(j,i+1)-v(j,i+2))/(2*h);
+            advx(j,i)=u_at_v_node*(-3*v(j,i)+4*v(j,i+1)-v(j,i+2))/(2*h);
         end
-
+        
         if(v(j,i)>0)
             advy(j,i)=v(j,i)*(3*v(j,i)-4*v(j-1,i)+v(j-2,i))/(2*h);
         else
@@ -246,26 +257,33 @@ for j=start:endy+1
     end
 end
 end
-end
+
 
 adv=advx+advy;
 
-%diffusion term in y direction
+%接着计算扩散项
 for j=start:endy+1
     for i=start:endx+1
 
         diff1=mu(phihalfy(j,i))*((v(j+1,i)-2*v(j,i)+v(j-1,i))/h^2+(v(j,i+1)-2*v(j,i)+v(j,i-1))/h^2);
-        diff2x=((mu(phi(j,i))-mu(phi(j-1,i)))/h)*2*diffvy(j,i);
+        diff2y=((mu(phi(j,i))-mu(phi(j-1,i)))/h)*2*diffvy(j,i);
+
+        %v定义的位置不同，故需要modify后使用
+        dmu_dx_E = (mu(phi(j,i+1)) + mu(phi(j-1,i+1))) * 0.5;
+        dmu_dx_W = (mu(phi(j,i-1)) + mu(phi(j-1,i-1))) * 0.5;
+        dmu_dx = (dmu_dx_E - dmu_dx_W) / (2*h);
 
         diffuy_mod=(diffuy(j,i)+diffuy(j,i+1)+diffuy(j+1,i)+diffuy(j+1,i+1))/4;
 
-        diff2y=((mu(phi(j,i))-mu(phi(j,i-1)))/h)*(diffuy_mod+diffvx(j,i));
+        diff2x=dmu_dx*(diffuy_mod+diffvx(j,i));
 
         diffv(j,i)=(diff1+diff2x+diff2y)/(rho(phihalfy(j,i)));
     end
 end
 
-%solve surface tension term
+
+
+%求张力项
 
 for j=start:endy+1
     for i=start:endx+1
@@ -275,10 +293,10 @@ for j=start:endy+1
     end
 end
 
-%solve vstar
+%求解vstar,并修正边界条件
 vstar=v+(-adv+diffv-surfv-g)*dt;
 
-%set boundary condition(non-slip)
+
 for j=1:Ny+1
     for i=1:ghostnum
         vstar(j,i)=-vstar(j,2*ghostnum+1-i);
@@ -306,7 +324,7 @@ end
 vstar(ghostnum+1,:)=zeros(size(vstar(ghostnum+1,:)));
 vstar(endy+1,:)=zeros(size(vstar(endy+1,:)));
 
-%Use Possion solver to modify velocity
 [unew, vnew,p]=Possion(rho(phi), ustar, vstar, h, h, dt, ghostnum);
 
 end
+
